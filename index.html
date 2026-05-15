@@ -9,16 +9,13 @@
 <meta name="theme-color" content="#0a0c0f">
 <title>MatScan</title>
 <link rel="manifest" href="manifest.json">
-<link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<!-- ZXing barcode library for camera scanning -->
-<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
 :root {
   --bg: #0a0c0f;
   --s1: #111418;
   --s2: #181c22;
-  --s3: #1e242c;
   --border: #252b34;
   --accent: #00e5a0;
   --blue: #2979ff;
@@ -33,30 +30,36 @@
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--sans);}
-
-/* ── LAYOUT ────────────────────────────────────────────────── */
 #app{display:flex;flex-direction:column;height:100%;height:100dvh;}
+
 #top-bar{
   flex-shrink:0;
-  padding:calc(var(--safe-top) + 12px) 18px 12px;
+  padding:calc(var(--safe-top) + 10px) 16px 10px;
   display:flex;align-items:center;justify-content:space-between;
-  background:rgba(10,12,15,0.95);
-  border-bottom:1px solid var(--border);
-  backdrop-filter:blur(12px);
-  z-index:20;
+  background:rgba(10,12,15,0.96);border-bottom:1px solid var(--border);
+  backdrop-filter:blur(12px);z-index:20;
 }
 .logo{font-size:20px;font-weight:800;letter-spacing:-0.5px;}
 .logo em{color:var(--accent);font-style:normal;}
+#status-pill{
+  display:flex;align-items:center;gap:6px;
+  font-family:var(--mono);font-size:10px;color:var(--muted);
+  padding:5px 10px;border:1px solid var(--border);border-radius:20px;transition:all 0.3s;
+}
+#status-pill.active{color:var(--accent);border-color:rgba(0,229,160,0.3);}
+#status-pill.error{color:var(--danger);border-color:rgba(255,61,90,0.3);}
+#s-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);transition:background 0.3s;}
+#status-pill.active #s-dot{background:var(--accent);box-shadow:0 0 5px var(--accent);animation:blink 1.4s infinite;}
+#status-pill.error #s-dot{background:var(--danger);}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.4}}
 
 #content{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;}
 #content::-webkit-scrollbar{display:none;}
 
 #nav{
-  flex-shrink:0;
+  flex-shrink:0;display:flex;gap:6px;
   padding:8px 12px calc(var(--safe-bot) + 8px);
-  display:flex;gap:6px;
-  background:rgba(14,17,21,0.97);
-  border-top:1px solid var(--border);
+  background:rgba(14,17,21,0.97);border-top:1px solid var(--border);
   backdrop-filter:blur(16px);
 }
 .nav-btn{
@@ -69,95 +72,92 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .nav-btn .ni{font-size:20px;line-height:1;}
 .nav-btn.on{color:var(--accent);background:rgba(0,229,160,0.07);border-color:rgba(0,229,160,0.18);}
 
-/* ── VIEWS ─────────────────────────────────────────────────── */
-.view{display:none;padding-bottom:12px;}
+.view{display:none;padding-bottom:16px;}
 .view.on{display:block;}
 
-/* ── SCAN VIEW ─────────────────────────────────────────────── */
+/* ── CAMERA SECTION ── */
 #cam-wrap{
-  position:relative;
-  background:#000;
-  overflow:hidden;
-  height:52vw;
-  max-height:260px;
+  margin:12px 16px 0;border-radius:16px;overflow:hidden;
+  border:1px solid var(--border);background:#000;position:relative;
 }
-#cam-video{width:100%;height:100%;object-fit:cover;display:block;}
-#cam-overlay{
-  position:absolute;inset:0;
-  display:flex;align-items:center;justify-content:center;
-  background:rgba(0,0,0,0.55);
+/* html5-qrcode injects into #reader */
+#reader{width:100% !important;}
+/* Hide html5-qrcode's own UI elements we don't want */
+#reader__dashboard_section_swaplink,
+#reader__dashboard_section_fileselection,
+#reader__dashboard,
+#reader__status_span { display:none !important; }
+#reader video{width:100%!important;object-fit:cover!important;display:block!important;}
+#reader canvas{display:none!important;}
+
+/* Placeholder shown before camera starts */
+#cam-placeholder{
+  text-align:center;padding:40px 20px;
+  color:var(--muted);font-family:var(--mono);font-size:11px;
 }
-#cam-frame{
-  width:70%;aspect-ratio:2/1;
-  border:2px solid var(--accent);
-  border-radius:10px;
-  position:relative;
-  box-shadow:0 0 0 9999px rgba(0,0,0,0.45);
+#cam-placeholder .pi{font-size:40px;display:block;margin-bottom:10px;opacity:0.35;}
+
+/* Scan line animation overlay */
+#scan-overlay{
+  position:absolute;inset:0;pointer-events:none;
+  display:none;align-items:center;justify-content:center;
 }
-#cam-frame::before,#cam-frame::after,
-.cf-bl::before,.cf-bl::after{
-  content:'';position:absolute;width:18px;height:18px;border-color:var(--accent);border-style:solid;
+#scan-overlay.on{display:flex;}
+#sf{position:relative;width:65%;aspect-ratio:2/1;}
+#sf::before,#sf::after,.sf2::before,.sf2::after{
+  content:'';position:absolute;width:18px;height:18px;
+  border-color:var(--accent);border-style:solid;
 }
-#cam-frame::before{top:-2px;left:-2px;border-width:3px 0 0 3px;border-radius:4px 0 0 0;}
-#cam-frame::after{top:-2px;right:-2px;border-width:3px 3px 0 0;border-radius:0 4px 0 0;}
-.cf-bl::before{bottom:-2px;left:-2px;border-width:0 0 3px 3px;border-radius:0 0 0 4px;}
-.cf-bl::after{bottom:-2px;right:-2px;border-width:0 3px 3px 0;border-radius:0 0 4px 0;}
-#scan-line{
-  position:absolute;left:6px;right:6px;height:2px;
+#sf::before{top:0;left:0;border-width:2px 0 0 2px;border-radius:3px 0 0 0;}
+#sf::after{top:0;right:0;border-width:2px 2px 0 0;border-radius:0 3px 0 0;}
+.sf2::before{bottom:0;left:0;border-width:0 0 2px 2px;border-radius:0 0 0 3px;}
+.sf2::after{bottom:0;right:0;border-width:0 2px 2px 0;border-radius:0 0 3px 0;}
+#sline{
+  position:absolute;left:4px;right:4px;height:2px;
   background:linear-gradient(90deg,transparent,var(--accent),transparent);
-  top:0;animation:sweep 2s linear infinite;
+  animation:sweep 1.8s linear infinite;
 }
 @keyframes sweep{0%{top:4px}100%{top:calc(100% - 4px)}}
-#cam-status{
-  position:absolute;bottom:10px;left:0;right:0;text-align:center;
-  font-family:var(--mono);font-size:10px;color:rgba(255,255,255,0.6);
-  text-transform:uppercase;letter-spacing:1px;
-}
 
-#cam-controls{
-  display:flex;gap:8px;padding:10px 16px;
-}
+/* Controls */
+#cam-controls{display:flex;gap:8px;padding:10px 16px 0;}
 .cam-btn{
-  flex:1;padding:12px 6px;border-radius:10px;border:1px solid var(--border);
-  background:var(--s1);color:var(--text);font-family:var(--sans);font-size:13px;
-  font-weight:600;cursor:pointer;transition:all 0.18s;
+  flex:1;padding:13px 8px;border-radius:12px;
+  border:1px solid var(--border);background:var(--s1);
+  color:var(--text);font-family:var(--sans);font-size:14px;font-weight:700;
+  cursor:pointer;transition:all 0.18s;
   display:flex;align-items:center;justify-content:center;gap:6px;
 }
 .cam-btn.primary{background:var(--accent);color:#000;border-color:transparent;}
-.cam-btn.primary:active{background:#00c88a;}
+.cam-btn.primary:active{background:#00c48a;}
+.cam-btn.stop{background:rgba(255,61,90,0.12);color:var(--danger);border-color:rgba(255,61,90,0.3);}
 .cam-btn:active{opacity:0.7;}
-.cam-btn.on{background:rgba(255,61,90,0.15);border-color:rgba(255,61,90,0.4);color:var(--danger);}
+.cam-btn.icon{flex:0;padding:13px 15px;}
 
-/* manual input */
-#manual-row{
-  display:flex;gap:8px;padding:0 16px 12px;
-}
+#manual-row{display:flex;gap:8px;padding:10px 16px 0;}
 #manual-input{
   flex:1;background:var(--s1);border:1px solid var(--border);
   color:var(--text);font-family:var(--mono);font-size:13px;
-  padding:10px 12px;border-radius:10px;outline:none;
+  padding:11px 13px;border-radius:10px;outline:none;
 }
+#manual-input::placeholder{color:var(--muted);}
 #manual-input:focus{border-color:var(--blue);}
 #manual-go{
-  padding:10px 16px;background:var(--blue);color:#fff;
+  padding:11px 18px;background:var(--blue);color:#fff;
   border:none;border-radius:10px;font-family:var(--sans);
-  font-weight:700;font-size:13px;cursor:pointer;
+  font-weight:700;font-size:15px;cursor:pointer;
 }
 
-/* log */
-.sec-head{padding:14px 16px 8px;display:flex;align-items:center;justify-content:space-between;}
+.sec-head{padding:16px 16px 8px;display:flex;align-items:center;justify-content:space-between;}
 .sec-title{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);}
-.chip{
-  background:var(--s2);border:1px solid var(--border);
-  font-family:var(--mono);font-size:9px;padding:3px 9px;border-radius:8px;color:var(--muted);
-}
+.chip{background:var(--s2);border:1px solid var(--border);font-family:var(--mono);font-size:9px;padding:3px 9px;border-radius:8px;color:var(--muted);}
 .chip.danger{background:rgba(255,61,90,0.1);border-color:rgba(255,61,90,0.3);color:var(--danger);}
 .chip.warn{background:rgba(255,152,0,0.1);border-color:rgba(255,152,0,0.3);color:var(--warn);}
 
 #log-list{padding:0 16px;display:flex;flex-direction:column;gap:9px;}
 .log-card{
   background:var(--s1);border:1px solid var(--border);border-radius:14px;
-  padding:13px 14px;display:flex;align-items:center;gap:12px;
+  padding:12px 14px;display:flex;align-items:center;gap:12px;
   position:relative;overflow:hidden;
   animation:popIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
 }
@@ -182,15 +182,11 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .log-badge.warn{background:rgba(255,152,0,0.12);color:var(--warn);}
 .log-badge.expired{background:rgba(255,61,90,0.15);color:var(--danger);}
 
-.empty{text-align:center;padding:40px 20px;color:var(--muted);font-family:var(--mono);font-size:11px;}
-.empty .ei{font-size:40px;display:block;margin-bottom:10px;opacity:0.35;}
+.empty{text-align:center;padding:36px 20px;color:var(--muted);font-family:var(--mono);font-size:11px;}
+.empty .ei{font-size:38px;display:block;margin-bottom:10px;opacity:0.3;}
 
-/* ── LIBRARY VIEW ──────────────────────────────────────────── */
 #lib-list{padding:0 16px;display:flex;flex-direction:column;gap:9px;}
-.lib-card{
-  background:var(--s1);border:1px solid var(--border);border-radius:14px;
-  padding:13px 14px;display:flex;align-items:center;gap:12px;
-}
+.lib-card{background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:12px;}
 .lib-ico{width:42px;height:42px;background:var(--s2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
 .lib-body{flex:1;min-width:0;}
 .lib-name{font-weight:700;font-size:15px;}
@@ -199,10 +195,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .lib-exp.ok{color:var(--accent);}
 .lib-exp.warn{color:var(--warn);}
 .lib-exp.expired{color:var(--danger);}
-.lib-del{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:6px;transition:color 0.2s;}
+.lib-del{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:6px;flex-shrink:0;}
 .lib-del:active{color:var(--danger);}
 
-/* ── STATS VIEW ────────────────────────────────────────────── */
 #stats-body{padding:0 16px;display:flex;flex-direction:column;gap:10px;}
 .stat-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .stat-card{background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:16px;}
@@ -212,9 +207,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .stat-n.w{color:var(--warn);}
 .stat-lbl{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-top:4px;}
 
-/* ── MODALS ────────────────────────────────────────────────── */
 .overlay{
-  position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);
+  position:fixed;inset:0;background:rgba(0,0,0,0.72);backdrop-filter:blur(6px);
   z-index:90;display:flex;align-items:flex-end;justify-content:center;
   opacity:0;pointer-events:none;transition:opacity 0.22s;
 }
@@ -229,11 +223,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
   max-height:90dvh;overflow-y:auto;
 }
 .overlay.on .sheet{transform:translateY(0);}
-.sheet-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:14px auto 22px;}
-.sheet-title{font-size:20px;font-weight:800;margin-bottom:4px;}
-.sheet-sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:20px;}
-
-.fg{margin-bottom:16px;}
+.sh{width:36px;height:4px;background:var(--border);border-radius:2px;margin:14px auto 20px;}
+.st{font-size:20px;font-weight:800;margin-bottom:4px;}
+.ss{font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:18px;}
+.fg{margin-bottom:15px;}
 .fl{display:block;font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:7px;}
 .fi,.fs{
   width:100%;background:var(--s2);border:1px solid var(--border);
@@ -243,138 +236,87 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 }
 .fi:focus,.fs:focus{border-color:var(--blue);}
 .fs option{background:var(--s2);}
-
 .emoji-row{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;}
-.ep{
-  width:40px;height:40px;display:flex;align-items:center;justify-content:center;
-  font-size:20px;background:var(--s2);border:1.5px solid var(--border);
-  border-radius:9px;cursor:pointer;transition:all 0.15s;
-}
+.ep{width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:20px;background:var(--s2);border:1.5px solid var(--border);border-radius:9px;cursor:pointer;}
 .ep:active,.ep.sel{border-color:var(--accent);background:rgba(0,229,160,0.1);}
-
-.btn-row{display:flex;gap:10px;margin-top:20px;}
-.btn{
-  flex:1;padding:14px;border-radius:12px;font-family:var(--sans);
-  font-weight:700;font-size:15px;cursor:pointer;border:none;transition:all 0.18s;
-}
+.br{display:flex;gap:10px;margin-top:18px;}
+.btn{flex:1;padding:14px;border-radius:12px;font-family:var(--sans);font-weight:700;font-size:15px;cursor:pointer;border:none;}
 .btn-p{background:var(--accent);color:#000;}
 .btn-p:active{background:#00c48a;}
 .btn-s{background:var(--s2);color:var(--text);border:1px solid var(--border);}
-.btn-s:active{opacity:0.7;}
 
-/* expiry alert */
-.exp-sheet{text-align:center;}
-.exp-big{font-size:64px;display:block;margin-bottom:8px;}
-.exp-name{font-size:22px;font-weight:800;}
-.exp-msg{font-family:var(--mono);font-size:11px;color:var(--muted);margin:8px 0 0;}
-.exp-days{display:inline-block;margin:14px 0;padding:9px 20px;border-radius:10px;font-family:var(--mono);font-weight:700;font-size:13px;}
-.exp-days.expired{background:rgba(255,61,90,0.14);color:var(--danger);border:1px solid rgba(255,61,90,0.3);}
-.exp-days.warn{background:rgba(255,152,0,0.12);color:var(--warn);border:1px solid rgba(255,152,0,0.3);}
+.ec{text-align:center;}
+.eb{font-size:60px;display:block;margin-bottom:8px;}
+.en{font-size:22px;font-weight:800;}
+.em{font-family:var(--mono);font-size:11px;color:var(--muted);margin:8px 0 0;}
+.ed{display:inline-block;margin:14px 0;padding:9px 20px;border-radius:10px;font-family:var(--mono);font-weight:700;font-size:13px;}
+.ed.expired{background:rgba(255,61,90,0.14);color:var(--danger);border:1px solid rgba(255,61,90,0.3);}
+.ed.warn{background:rgba(255,152,0,0.12);color:var(--warn);border:1px solid rgba(255,152,0,0.3);}
 
-/* toast */
-#toast{
-  position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(16px);
-  background:var(--s1);border:1px solid var(--border);
-  color:var(--text);font-family:var(--mono);font-size:11px;
-  padding:9px 18px;border-radius:20px;
-  opacity:0;transition:all 0.25s;white-space:nowrap;z-index:200;
-  pointer-events:none;
-}
-#toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
-
-/* scan pulse ring when active */
-#pulse{
-  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-  width:80px;height:80px;border-radius:50%;
-  background:rgba(0,229,160,0.15);
-  display:none;
-  animation:ringPulse 0.6s ease-out;
-}
-@keyframes ringPulse{0%{transform:translate(-50%,-50%) scale(0.3);opacity:1}100%{transform:translate(-50%,-50%) scale(2.5);opacity:0}}
-
-/* install banner */
 #install-banner{
-  margin:10px 16px 0;
-  background:linear-gradient(135deg,rgba(41,121,255,0.15),rgba(0,229,160,0.1));
-  border:1px solid rgba(41,121,255,0.3);border-radius:12px;
+  margin:12px 16px 0;
+  background:linear-gradient(135deg,rgba(41,121,255,0.12),rgba(0,229,160,0.08));
+  border:1px solid rgba(41,121,255,0.25);border-radius:12px;
   padding:12px 14px;display:flex;align-items:center;gap:12px;
 }
 #install-banner.hide{display:none;}
-.ib-text{flex:1;font-size:12px;font-weight:600;}
-.ib-sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px;}
-.ib-btn{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-family:var(--sans);font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;}
-.ib-x{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:2px 6px;}
+.ibt{flex:1;font-size:13px;font-weight:700;}
+.ibs{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:2px;}
+.ibb{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-family:var(--sans);font-weight:700;font-size:12px;cursor:pointer;}
+.ibx{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:2px 6px;}
+
+#toast{
+  position:fixed;bottom:85px;left:50%;transform:translateX(-50%) translateY(14px);
+  background:var(--s1);border:1px solid var(--border);
+  color:var(--text);font-family:var(--mono);font-size:11px;
+  padding:9px 18px;border-radius:20px;
+  opacity:0;transition:all 0.25s;z-index:200;pointer-events:none;
+  max-width:80vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
 </style>
 </head>
 <body>
 <div id="app">
-
-  <!-- TOP BAR -->
   <div id="top-bar">
     <div class="logo">Mat<em>Scan</em></div>
-    <div style="display:flex;align-items:center;gap:10px;">
-      <div id="scan-indicator" style="font-family:var(--mono);font-size:10px;color:var(--muted);display:flex;align-items:center;gap:5px;">
-        <div id="si-dot" style="width:6px;height:6px;border-radius:50%;background:var(--muted);"></div>
-        <span id="si-text">Camera off</span>
-      </div>
-    </div>
+    <div id="status-pill"><div id="s-dot"></div><span id="s-text">Ready</span></div>
   </div>
 
-  <!-- CONTENT -->
   <div id="content">
-
-    <!-- ══ SCAN VIEW ══ -->
+    <!-- SCAN VIEW -->
     <div class="view on" id="view-scan">
-
-      <!-- Install banner -->
       <div id="install-banner" class="hide">
-        <div>
-          <div class="ib-text">📲 Install MatScan</div>
-          <div class="ib-sub">Add to home screen for app experience</div>
-        </div>
-        <button class="ib-btn" onclick="installPWA()">Install</button>
-        <button class="ib-x" onclick="dismissInstall()">✕</button>
+        <div><div class="ibt">📲 Install MatScan</div><div class="ibs">Add to home screen</div></div>
+        <button class="ibb" onclick="installPWA()">Install</button>
+        <button class="ibx" onclick="document.getElementById('install-banner').classList.add('hide')">✕</button>
       </div>
 
-      <!-- Camera viewfinder -->
       <div id="cam-wrap">
-        <video id="cam-video" playsinline muted></video>
-        <div id="cam-overlay">
-          <div id="pulse"></div>
-          <div id="cam-frame">
-            <div class="cf-bl"></div>
-            <div id="scan-line"></div>
-          </div>
-        </div>
-        <div id="cam-status">Tap Start Camera to scan</div>
+        <div id="cam-placeholder"><span class="pi">📷</span>Tap <strong>Start Camera</strong> below<br>to scan barcodes &amp; QR codes</div>
+        <div id="reader"></div>
+        <div id="scan-overlay"><div id="sf"><div class="sf2"></div><div id="sline"></div></div></div>
       </div>
 
-      <!-- Controls -->
       <div id="cam-controls">
-        <button class="cam-btn primary" id="start-btn" onclick="startCamera()">
-          <span>📷</span> Start Camera
-        </button>
-        <button class="cam-btn" id="torch-btn" onclick="toggleTorch()" style="flex:0;padding:12px 14px;">🔦</button>
-        <button class="cam-btn" id="flip-btn" onclick="flipCamera()" style="flex:0;padding:12px 14px;">🔄</button>
+        <button class="cam-btn primary" id="start-btn" onclick="toggleCamera()"><span>📷</span> Start Camera</button>
+        <button class="cam-btn icon" id="torch-btn" onclick="toggleTorch()">🔦</button>
+        <button class="cam-btn icon" onclick="flipCamera()">🔄</button>
       </div>
 
-      <!-- Manual barcode entry -->
       <div id="manual-row">
-        <input class="form-input" id="manual-input" placeholder="Or type barcode / ID manually…" type="text" inputmode="text" />
-        <button id="manual-go" onclick="manualLookup()">Go</button>
+        <input id="manual-input" placeholder="Type barcode / ID manually…" type="text" inputmode="text" autocomplete="off" />
+        <button id="manual-go" onclick="manualLookup()">→</button>
       </div>
 
-      <!-- Log -->
       <div class="sec-head">
         <div class="sec-title">Scan Log</div>
         <div class="chip" id="log-chip">0 entries</div>
       </div>
-      <div id="log-list">
-        <div class="empty"><span class="ei">📋</span>No scans yet.<br>Start camera to begin.</div>
-      </div>
+      <div id="log-list"><div class="empty"><span class="ei">📋</span>No scans yet.<br>Start the camera to begin.</div></div>
     </div>
 
-    <!-- ══ LIBRARY VIEW ══ -->
+    <!-- LIBRARY VIEW -->
     <div class="view" id="view-library">
       <div class="sec-head">
         <div class="sec-title">Ingredient Library</div>
@@ -383,56 +325,49 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
       <div id="lib-list"></div>
     </div>
 
-    <!-- ══ STATS VIEW ══ -->
+    <!-- STATS VIEW -->
     <div class="view" id="view-stats">
       <div class="sec-head"><div class="sec-title">Overview</div></div>
       <div id="stats-body"></div>
     </div>
+  </div>
 
-  </div><!-- /content -->
-
-  <!-- BOTTOM NAV -->
   <nav id="nav">
     <button class="nav-btn on" onclick="switchView('scan',this)"><span class="ni">📡</span>Scan</button>
     <button class="nav-btn" onclick="switchView('library',this)"><span class="ni">📦</span>Library</button>
     <button class="nav-btn" onclick="switchView('stats',this)"><span class="ni">📊</span>Stats</button>
   </nav>
+</div>
 
-</div><!-- /app -->
-
-<!-- ══ ADD INGREDIENT MODAL ══ -->
+<!-- ADD INGREDIENT MODAL -->
 <div class="overlay" id="m-add">
   <div class="sheet">
-    <div class="sheet-handle"></div>
-    <div class="sheet-title">Add Ingredient</div>
-    <div class="sheet-sub" id="add-sub">Register this material in your library</div>
+    <div class="sh"></div>
+    <div class="st">Add Ingredient</div>
+    <div class="ss" id="add-sub">Register this material</div>
     <div class="fg"><label class="fl">Name</label><input class="fi" id="f-name" placeholder="e.g. Isopropyl Alcohol" /></div>
-    <div class="fg"><label class="fl">Barcode / ID (optional)</label><input class="fi" id="f-barcode" placeholder="e.g. 012345678901" /></div>
-    <div class="fg">
-      <label class="fl">Category</label>
+    <div class="fg"><label class="fl">Barcode / ID (optional)</label><input class="fi" id="f-barcode" /></div>
+    <div class="fg"><label class="fl">Category</label>
       <select class="fs" id="f-cat">
         <option>Chemical</option><option>Food</option><option>Pharmaceutical</option>
         <option>Raw Material</option><option>Reagent</option><option>Solvent</option><option>Other</option>
       </select>
     </div>
     <div class="fg"><label class="fl">Expiry Date</label><input class="fi" id="f-exp" type="date" /></div>
-    <div class="fg">
-      <label class="fl">Icon</label>
-      <div class="emoji-row" id="emoji-grid"></div>
-    </div>
-    <div class="btn-row">
+    <div class="fg"><label class="fl">Icon</label><div class="emoji-row" id="emoji-grid"></div></div>
+    <div class="br">
       <button class="btn btn-s" onclick="closeModal('m-add')">Cancel</button>
       <button class="btn btn-p" onclick="saveIngredient()">Save</button>
     </div>
   </div>
 </div>
 
-<!-- ══ EXPIRY ALERT MODAL ══ -->
+<!-- EXPIRY ALERT MODAL -->
 <div class="overlay" id="m-expiry">
-  <div class="sheet exp-sheet">
-    <div class="sheet-handle"></div>
+  <div class="sheet ec">
+    <div class="sh"></div>
     <div id="exp-content"></div>
-    <div class="btn-row">
+    <div class="br">
       <button class="btn btn-s" onclick="closeModal('m-expiry')">Dismiss</button>
       <button class="btn btn-p" onclick="logAnyway()">Log Anyway</button>
     </div>
@@ -442,28 +377,21 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 <div id="toast"></div>
 
 <script>
-// ════════════════════════════════════════════════════════════
-//  DATA
-// ════════════════════════════════════════════════════════════
-const EMOJIS = ['🧪','⚗️','🧬','🔬','💊','🧴','🧂','🌡️','🍬','🛢️','⚙️','🔩','🧲','💡','🌿','🍋','💧','🔋','📦','🧫'];
-
-let db = {
-  ingredients: JSON.parse(localStorage.getItem('ms_ingr') || 'null') || defaultIngr(),
-  log: JSON.parse(localStorage.getItem('ms_log') || '[]')
+// ── DATA ──────────────────────────────────────────────────────
+const EMOJIS=['🧪','⚗️','🧬','🔬','💊','🧴','🧂','🌡️','🍬','🛢️','⚙️','🔩','🧲','💡','🌿','🍋','💧','🔋','📦','🧫'];
+let db={
+  ingredients:JSON.parse(localStorage.getItem('ms_ingr')||'null')||defaultIngr(),
+  log:JSON.parse(localStorage.getItem('ms_log')||'[]')
 };
-let camStream = null, codeReader = null, torchOn = false, facingMode = 'environment';
-let selectedEmoji = EMOJIS[0], addFromLib = false, pendingBarcode = null, pendingIngr = null;
-let deferredInstall = null;
+let html5QrCode=null,isScanning=false,currentFacing='environment',torchOn=false;
+let pendingIngr=null,pendingBarcode=null,addFromLib=false,selectedEmoji=EMOJIS[0];
+let deferredInstall=null,lastCode='',lastCodeTime=0;
 
-function save() {
-  localStorage.setItem('ms_ingr', JSON.stringify(db.ingredients));
-  localStorage.setItem('ms_log', JSON.stringify(db.log));
-}
+function save(){localStorage.setItem('ms_ingr',JSON.stringify(db.ingredients));localStorage.setItem('ms_log',JSON.stringify(db.log));}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+function futureDate(d){const x=new Date();x.setDate(x.getDate()+d);return x.toISOString().split('T')[0];}
 
-function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
-function futureDate(d) { const x=new Date(); x.setDate(x.getDate()+d); return x.toISOString().split('T')[0]; }
-
-function defaultIngr() {
+function defaultIngr(){
   return [
     {id:uid(),name:'Sodium Chloride',barcode:'4001686107003',cat:'Chemical',icon:'🧂',exp:futureDate(365)},
     {id:uid(),name:'Ethanol 96%',barcode:'4056489014218',cat:'Solvent',icon:'🧪',exp:futureDate(-10)},
@@ -473,191 +401,164 @@ function defaultIngr() {
   ];
 }
 
-function daysLeft(d) {
-  if(!d) return null;
-  const now=new Date(); now.setHours(0,0,0,0);
-  return Math.ceil((new Date(d)-now)/86400000);
-}
-function expStatus(d) {
-  const x=daysLeft(d);
-  if(x===null) return 'ok';
-  if(x<0) return 'expired';
-  if(x<=30) return 'warn';
-  return 'ok';
-}
-function fmtDt(iso) {
-  const d=new Date(iso);
-  return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
-    +' '+d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-}
-function findByBarcode(bc) {
-  return db.ingredients.find(i => i.barcode && i.barcode === bc);
-}
+function daysLeft(d){if(!d)return null;const n=new Date();n.setHours(0,0,0,0);return Math.ceil((new Date(d)-n)/86400000);}
+function expStatus(d){const x=daysLeft(d);if(x===null)return 'ok';if(x<0)return 'expired';if(x<=30)return 'warn';return 'ok';}
+function fmtDt(iso){const d=new Date(iso);return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});}
+function findByBarcode(bc){return db.ingredients.find(i=>i.barcode&&i.barcode.trim()===bc.trim());}
 
-// ════════════════════════════════════════════════════════════
-//  CAMERA / SCANNING
-// ════════════════════════════════════════════════════════════
-async function startCamera() {
-  const btn = document.getElementById('start-btn');
-  if (camStream) { stopCamera(); return; }
+// ── CAMERA ───────────────────────────────────────────────────
+async function toggleCamera(){isScanning?await stopCamera():await startCamera();}
 
-  setScanStatus('Starting…', '#ff9800');
-  try {
-    camStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode, width:{ideal:1280}, height:{ideal:720} },
-      audio: false
-    });
-    const vid = document.getElementById('cam-video');
-    vid.srcObject = camStream;
-    await vid.play();
+async function startCamera(){
+  setStatus('Starting…','');
+  if(typeof Html5Qrcode==='undefined'){setStatus('Load error','error');showToast('❌ Scanner library failed. Check internet connection.');return;}
 
-    btn.innerHTML = '<span>⏹</span> Stop Camera';
-    btn.classList.add('on');
-    setScanStatus('Scanning for barcode…', '#00e5a0');
-    startDecoding();
-  } catch(e) {
-    setScanStatus('Camera error: '+e.message, '#ff3d5a');
-    showToast('❌ Camera: '+e.message);
-    camStream = null;
-  }
-}
+  document.getElementById('cam-placeholder').style.display='none';
 
-function stopCamera() {
-  if (camStream) { camStream.getTracks().forEach(t=>t.stop()); camStream=null; }
-  if (codeReader) { try{codeReader.reset();}catch(e){} codeReader=null; }
-  const vid = document.getElementById('cam-video');
-  vid.srcObject = null;
-  const btn = document.getElementById('start-btn');
-  btn.innerHTML = '<span>📷</span> Start Camera';
-  btn.classList.remove('on');
-  setScanStatus('Camera off', 'var(--muted)');
-}
+  html5QrCode=new Html5Qrcode('reader',{verbose:false});
 
-function startDecoding() {
-  if (typeof ZXing === 'undefined') { showToast('Barcode library loading…'); return; }
-  const hints = new Map();
-  const formats = [
-    ZXing.BarcodeFormat.QR_CODE,
-    ZXing.BarcodeFormat.CODE_128,
-    ZXing.BarcodeFormat.EAN_13,
-    ZXing.BarcodeFormat.EAN_8,
-    ZXing.BarcodeFormat.UPC_A,
-    ZXing.BarcodeFormat.UPC_E,
-    ZXing.BarcodeFormat.CODE_39,
-    ZXing.BarcodeFormat.DATA_MATRIX
-  ];
-  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-  codeReader = new ZXing.BrowserMultiFormatReader(hints);
-  const vid = document.getElementById('cam-video');
-  codeReader.decodeFromVideoElement(vid, (result, err) => {
-    if (result) {
-      const code = result.getText();
-      onBarcodeDetected(code);
+  const qrboxFn=(vw,vh)=>{
+    const minDim=Math.min(vw,vh);
+    const size=Math.floor(minDim*0.7);
+    return {width:size,height:Math.floor(size*0.5)};
+  };
+
+  const cfg={fps:10,qrbox:qrboxFn,aspectRatio:1.5,
+    formatsToSupport:[
+      Html5QrcodeSupportedFormats.QR_CODE,
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E,
+      Html5QrcodeSupportedFormats.CODE_128,
+      Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.DATA_MATRIX,
+      Html5QrcodeSupportedFormats.ITF
+    ]
+  };
+
+  try{
+    // Get cameras and prefer rear
+    let cameras=[];
+    try{cameras=await Html5Qrcode.getCameras();}catch(e){}
+
+    let cameraId=null;
+    if(cameras.length>0){
+      const rear=cameras.find(c=>/back|rear|environment/i.test(c.label));
+      cameraId=(rear||cameras[cameras.length-1]).id;
     }
-  });
-}
 
-let lastScan = '', lastScanTime = 0;
-function onBarcodeDetected(code) {
-  const now = Date.now();
-  if (code === lastScan && now - lastScanTime < 3000) return; // debounce
-  lastScan = code; lastScanTime = now;
+    const camArg=cameraId||{facingMode:currentFacing};
+    await html5QrCode.start(camArg,cfg,onScanSuccess,()=>{});
 
-  // pulse animation
-  const p = document.getElementById('pulse');
-  p.style.display = 'block';
-  setTimeout(()=>{p.style.display='none';}, 700);
-
-  // haptic feedback
-  if (navigator.vibrate) navigator.vibrate([60,40,60]);
-
-  setScanStatus('✓ Scanned: '+code, '#00e5a0');
-  processBarcode(code);
-}
-
-function processBarcode(code) {
-  const ingr = findByBarcode(code);
-  if (!ingr) {
-    pendingBarcode = code;
-    openAdd(code, false);
-    return;
-  }
-  const st = expStatus(ingr.exp);
-  if (st !== 'ok') {
-    pendingIngr = ingr;
-    showExpiryAlert(ingr, st);
-  } else {
-    addLog(ingr);
+    isScanning=true;
+    setStatus('Scanning…','active');
+    document.getElementById('scan-overlay').classList.add('on');
+    const btn=document.getElementById('start-btn');
+    btn.className='cam-btn stop';
+    btn.innerHTML='<span>⏹</span> Stop Camera';
+    // Clean up html5-qrcode's injected UI
+    setTimeout(()=>{
+      document.querySelectorAll('#reader img,#reader select,#reader__dashboard,#reader__dashboard_section_swaplink').forEach(e=>{try{e.style.display='none';}catch(_){}});
+    },400);
+  }catch(err){
+    console.error(err);
+    document.getElementById('cam-placeholder').style.display='block';
+    html5QrCode=null;
+    let msg=String(err.message||err);
+    if(/[Pp]ermission/.test(msg)) msg='Camera permission denied.\nIn Chrome: tap the 🔒 icon in the address bar → Site settings → Camera → Allow.';
+    else if(/[Nn]ot[Ff]ound|[Nn]o camera/.test(msg)) msg='No camera detected.';
+    setStatus('Error','error');
+    showToast('❌ '+msg.split('\n')[0]);
+    alert('Camera error:\n\n'+msg);
   }
 }
 
-function manualLookup() {
-  const v = document.getElementById('manual-input').value.trim();
-  if (!v) return;
-  document.getElementById('manual-input').value = '';
+async function stopCamera(){
+  if(html5QrCode&&isScanning){
+    try{await html5QrCode.stop();}catch(e){}
+    try{html5QrCode.clear();}catch(e){}
+  }
+  html5QrCode=null;isScanning=false;torchOn=false;
+  document.getElementById('cam-placeholder').style.display='block';
+  document.getElementById('scan-overlay').classList.remove('on');
+  document.getElementById('reader').innerHTML='';
+  const btn=document.getElementById('start-btn');
+  btn.className='cam-btn primary';
+  btn.innerHTML='<span>📷</span> Start Camera';
+  document.getElementById('torch-btn').style.color='';
+  setStatus('Ready','');
+}
+
+function onScanSuccess(text){
+  const now=Date.now();
+  if(text===lastCode&&now-lastCodeTime<3000)return;
+  lastCode=text;lastCodeTime=now;
+  if(navigator.vibrate)navigator.vibrate([60,40,80]);
+  setStatus('✓ '+text.slice(0,14),'active');
+  processBarcode(text);
+}
+
+async function flipCamera(){
+  if(!isScanning){showToast('Start camera first');return;}
+  currentFacing=currentFacing==='environment'?'user':'environment';
+  await stopCamera();
+  setTimeout(startCamera,400);
+  showToast(currentFacing==='user'?'🤳 Front camera':'📷 Rear camera');
+}
+
+async function toggleTorch(){
+  if(!isScanning||!html5QrCode){showToast('Start camera first');return;}
+  try{
+    torchOn=!torchOn;
+    await html5QrCode.applyVideoConstraints({advanced:[{torch:torchOn}]});
+    document.getElementById('torch-btn').style.color=torchOn?'#ffd700':'';
+    showToast(torchOn?'🔦 Torch on':'Torch off');
+  }catch(e){showToast('Torch not supported on this device');torchOn=false;}
+}
+
+function processBarcode(code){
+  const ingr=findByBarcode(code);
+  if(!ingr){pendingBarcode=code;openAdd(code,false);return;}
+  const st=expStatus(ingr.exp);
+  if(st!=='ok'){pendingIngr=ingr;showExpiryAlert(ingr,st);}
+  else addLog(ingr);
+}
+
+function manualLookup(){
+  const v=document.getElementById('manual-input').value.trim();
+  if(!v)return;
+  document.getElementById('manual-input').value='';
   processBarcode(v);
 }
 
-async function toggleTorch() {
-  if (!camStream) { showToast('Start camera first'); return; }
-  const track = camStream.getVideoTracks()[0];
-  if (!track.getCapabilities) { showToast('Torch not supported'); return; }
-  const caps = track.getCapabilities();
-  if (!caps.torch) { showToast('Torch not available'); return; }
-  torchOn = !torchOn;
-  await track.applyConstraints({ advanced:[{torch:torchOn}] });
-  const btn = document.getElementById('torch-btn');
-  btn.style.color = torchOn ? '#ffd700' : '';
-  showToast(torchOn ? '🔦 Torch on' : 'Torch off');
+function setStatus(msg,cls){
+  const p=document.getElementById('status-pill');
+  p.className=cls;
+  document.getElementById('s-text').textContent=msg.length>16?msg.slice(0,16)+'…':msg;
 }
 
-function flipCamera() {
-  facingMode = facingMode === 'environment' ? 'user' : 'environment';
-  if (camStream) { stopCamera(); setTimeout(startCamera, 300); }
-  showToast(facingMode==='user'?'Front camera':'Rear camera');
-}
-
-function setScanStatus(msg, color) {
-  const dot = document.getElementById('si-dot');
-  const txt = document.getElementById('si-text');
-  const camTxt = document.getElementById('cam-status');
-  dot.style.background = color;
-  txt.textContent = msg.length > 18 ? msg.slice(0,18)+'…' : msg;
-  if(camTxt) camTxt.textContent = msg;
-}
-
-// ════════════════════════════════════════════════════════════
-//  LOG
-// ════════════════════════════════════════════════════════════
-function addLog(ingr) {
-  const st = expStatus(ingr.exp);
-  db.log.unshift({ id:uid(), ts:new Date().toISOString(), name:ingr.name, cat:ingr.cat, icon:ingr.icon, exp:ingr.exp, barcode:ingr.barcode||'', status:st });
-  save();
-  renderLog();
-  renderStats();
+// ── LOG ───────────────────────────────────────────────────────
+function addLog(ingr){
+  const st=expStatus(ingr.exp);
+  db.log.unshift({id:uid(),ts:new Date().toISOString(),name:ingr.name,cat:ingr.cat,icon:ingr.icon,exp:ingr.exp||null,barcode:ingr.barcode||'',status:st});
+  save();renderLog();renderStats();
   showToast('✓ Logged: '+ingr.name);
 }
 
-function renderLog() {
-  const el = document.getElementById('log-list');
-  const chip = document.getElementById('log-chip');
-  chip.textContent = db.log.length + (db.log.length===1?' entry':' entries');
-
-  const expired = db.log.filter(e=>e.status==='expired').length;
-  const warn = db.log.filter(e=>e.status==='warn').length;
-  if (expired) { chip.className='chip danger'; chip.textContent = expired+' expired'; }
-  else if (warn) { chip.className='chip warn'; chip.textContent = warn+' expiring'; }
+function renderLog(){
+  const el=document.getElementById('log-list');
+  const chip=document.getElementById('log-chip');
+  const expired=db.log.filter(e=>e.status==='expired').length;
+  const warn=db.log.filter(e=>e.status==='warn').length;
+  chip.textContent=db.log.length+(db.log.length===1?' entry':' entries');
+  if(expired){chip.className='chip danger';chip.textContent=expired+' expired';}
+  else if(warn){chip.className='chip warn';chip.textContent=warn+' expiring';}
   else chip.className='chip';
-
-  if (!db.log.length) { el.innerHTML='<div class="empty"><span class="ei">📋</span>No scans yet.<br>Start camera to begin.</div>'; return; }
-
-  el.innerHTML = db.log.slice(0,60).map(e => {
-    const days = daysLeft(e.exp);
-    const expLine = e.exp ? `<div class="log-exp ${e.status}">${
-      e.status==='expired' ? `⚠ Expired ${Math.abs(days)}d ago` :
-      e.status==='warn' ? `⚠ Expires in ${days}d` :
-      `✓ Exp: ${e.exp}`
-    }</div>` : '';
+  if(!db.log.length){el.innerHTML='<div class="empty"><span class="ei">📋</span>No scans yet.<br>Start the camera to begin.</div>';return;}
+  el.innerHTML=db.log.slice(0,60).map(e=>{
+    const days=daysLeft(e.exp);
+    const expLine=e.exp?`<div class="log-exp ${e.status}">${e.status==='expired'?`⚠ Expired ${Math.abs(days)}d ago`:e.status==='warn'?`⚠ Expires in ${days}d`:`✓ Exp: ${e.exp}`}</div>`:'';
     return `<div class="log-card ${e.status}">
       <div class="log-ico">${e.icon||'📦'}</div>
       <div class="log-body">
@@ -670,117 +571,63 @@ function renderLog() {
   }).join('');
 }
 
-// ════════════════════════════════════════════════════════════
-//  EXPIRY ALERT
-// ════════════════════════════════════════════════════════════
-function showExpiryAlert(ingr, st) {
-  const days = daysLeft(ingr.exp);
-  const dayTxt = days<0 ? `Expired ${Math.abs(days)} day${Math.abs(days)!==1?'s':''} ago`
-                        : `Expires in ${days} day${days!==1?'s':''}`;
-  document.getElementById('exp-content').innerHTML = `
-    <span class="exp-big">${st==='expired'?'🚨':'⚠️'}</span>
-    <div class="exp-name">${ingr.name}</div>
-    <div class="exp-msg">${st==='expired'?'This material is expired.':'This material is expiring soon.'}</div>
-    <div class="exp-days ${st}">${dayTxt}</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:4px;">Expiry: ${ingr.exp}</div>
-  `;
+// ── EXPIRY ALERT ─────────────────────────────────────────────
+function showExpiryAlert(ingr,st){
+  const days=daysLeft(ingr.exp);
+  const dayTxt=days<0?`Expired ${Math.abs(days)} day${Math.abs(days)!==1?'s':''} ago`:`Expires in ${days} day${days!==1?'s':''}`;
+  document.getElementById('exp-content').innerHTML=`
+    <span class="eb">${st==='expired'?'🚨':'⚠️'}</span>
+    <div class="en">${ingr.name}</div>
+    <div class="em">${st==='expired'?'This material is expired.':'Expiring soon — handle with care.'}</div>
+    <div class="ed ${st}">${dayTxt}</div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:4px">Expiry: ${ingr.exp}</div>`;
   openModal('m-expiry');
-  if (navigator.vibrate) navigator.vibrate([100,50,100,50,200]);
+  if(navigator.vibrate)navigator.vibrate([100,50,100,50,200]);
 }
 
-function logAnyway() {
-  closeModal('m-expiry');
-  if (pendingIngr) { addLog(pendingIngr); pendingIngr=null; }
+function logAnyway(){closeModal('m-expiry');if(pendingIngr){addLog(pendingIngr);pendingIngr=null;}}
+
+// ── ADD INGREDIENT ────────────────────────────────────────────
+function openAdd(barcode,fromLib){
+  addFromLib=fromLib;pendingBarcode=barcode;
+  document.getElementById('f-name').value='';
+  document.getElementById('f-barcode').value=barcode||'';
+  document.getElementById('f-exp').value='';
+  document.getElementById('add-sub').textContent=fromLib?'Add a new ingredient to your library':barcode?`Unknown barcode: ${barcode}`:'Add ingredient manually';
+  selectedEmoji=EMOJIS[0];renderEmojiGrid();openModal('m-add');
+}
+function renderEmojiGrid(){document.getElementById('emoji-grid').innerHTML=EMOJIS.map(e=>`<div class="ep${e===selectedEmoji?' sel':''}" onclick="pickEmoji('${e}')">${e}</div>`).join('');}
+function pickEmoji(e){selectedEmoji=e;renderEmojiGrid();}
+
+function saveIngredient(){
+  const name=document.getElementById('f-name').value.trim();
+  if(!name){document.getElementById('f-name').focus();showToast('Enter a name');return;}
+  const ingr={id:uid(),name,barcode:document.getElementById('f-barcode').value.trim(),cat:document.getElementById('f-cat').value,icon:selectedEmoji,exp:document.getElementById('f-exp').value||null};
+  db.ingredients.push(ingr);save();closeModal('m-add');renderLibrary();
+  showToast('✓ '+name+' saved');
+  if(!addFromLib){pendingIngr=ingr;const st=expStatus(ingr.exp);if(st!=='ok')showExpiryAlert(ingr,st);else addLog(ingr);}
 }
 
-// ════════════════════════════════════════════════════════════
-//  ADD INGREDIENT
-// ════════════════════════════════════════════════════════════
-function openAdd(barcode, fromLib) {
-  addFromLib = fromLib;
-  pendingBarcode = barcode;
-  document.getElementById('f-name').value = '';
-  document.getElementById('f-barcode').value = barcode||'';
-  document.getElementById('f-exp').value = '';
-  document.getElementById('add-sub').textContent = fromLib
-    ? 'Add a new ingredient to your library'
-    : barcode ? `Unknown barcode: ${barcode} — register it` : 'Add ingredient manually';
-  selectedEmoji = EMOJIS[0];
-  renderEmojiGrid();
-  openModal('m-add');
-}
-
-function renderEmojiGrid() {
-  document.getElementById('emoji-grid').innerHTML = EMOJIS.map(e =>
-    `<div class="ep${e===selectedEmoji?' sel':''}" onclick="pickEmoji('${e}')">${e}</div>`
-  ).join('');
-}
-function pickEmoji(e) { selectedEmoji=e; renderEmojiGrid(); }
-
-function saveIngredient() {
-  const name = document.getElementById('f-name').value.trim();
-  if (!name) { document.getElementById('f-name').focus(); showToast('Enter a name'); return; }
-  const ingr = {
-    id: uid(),
-    name,
-    barcode: document.getElementById('f-barcode').value.trim(),
-    cat: document.getElementById('f-cat').value,
-    icon: selectedEmoji,
-    exp: document.getElementById('f-exp').value || null
-  };
-  db.ingredients.push(ingr);
-  save();
-  closeModal('m-add');
-  renderLibrary();
-  showToast('✓ '+name+' added');
-  if (!addFromLib) {
-    pendingIngr = ingr;
-    const st = expStatus(ingr.exp);
-    if (st !== 'ok') showExpiryAlert(ingr, st);
-    else addLog(ingr);
-  }
-}
-
-// ════════════════════════════════════════════════════════════
-//  LIBRARY
-// ════════════════════════════════════════════════════════════
-function renderLibrary() {
-  const el = document.getElementById('lib-list');
-  if (!db.ingredients.length) { el.innerHTML='<div class="empty"><span class="ei">📦</span>Library empty.</div>'; return; }
-  el.innerHTML = db.ingredients.map(i => {
-    const st = expStatus(i.exp);
-    const expLine = i.exp ? `<div class="lib-exp ${st}">${
-      st==='expired'?`⚠ Expired ${Math.abs(daysLeft(i.exp))}d ago`:
-      st==='warn'?`⚠ Exp in ${daysLeft(i.exp)}d`:`Exp: ${i.exp}`
-    }</div>` : '';
+// ── LIBRARY ───────────────────────────────────────────────────
+function renderLibrary(){
+  const el=document.getElementById('lib-list');
+  if(!db.ingredients.length){el.innerHTML='<div class="empty"><span class="ei">📦</span>Library empty.</div>';return;}
+  el.innerHTML=db.ingredients.map(i=>{
+    const st=expStatus(i.exp);
+    const expLine=i.exp?`<div class="lib-exp ${st}">${st==='expired'?`⚠ Expired ${Math.abs(daysLeft(i.exp))}d ago`:st==='warn'?`⚠ Exp in ${daysLeft(i.exp)}d`:`Exp: ${i.exp}`}</div>`:'';
     return `<div class="lib-card">
       <div class="lib-ico">${i.icon}</div>
-      <div class="lib-body">
-        <div class="lib-name">${i.name}</div>
-        <div class="lib-sub">${i.cat}${i.barcode?' · '+i.barcode:''}</div>
-        ${expLine}
-      </div>
+      <div class="lib-body"><div class="lib-name">${i.name}</div><div class="lib-sub">${i.cat}${i.barcode?' · '+i.barcode:''}</div>${expLine}</div>
       <button class="lib-del" onclick="delIngr('${i.id}')">✕</button>
     </div>`;
   }).join('');
 }
+function delIngr(id){if(!confirm('Remove this ingredient?'))return;db.ingredients=db.ingredients.filter(i=>i.id!==id);save();renderLibrary();showToast('Removed');}
 
-function delIngr(id) {
-  if (!confirm('Remove this ingredient?')) return;
-  db.ingredients = db.ingredients.filter(i=>i.id!==id);
-  save(); renderLibrary(); showToast('Removed');
-}
-
-// ════════════════════════════════════════════════════════════
-//  STATS
-// ════════════════════════════════════════════════════════════
-function renderStats() {
-  const total = db.log.length;
-  const expired = db.log.filter(e=>e.status==='expired').length;
-  const warn = db.log.filter(e=>e.status==='warn').length;
-  const ok = total-expired-warn;
-  const el = document.getElementById('stats-body');
-  el.innerHTML = `
+// ── STATS ─────────────────────────────────────────────────────
+function renderStats(){
+  const total=db.log.length,expired=db.log.filter(e=>e.status==='expired').length,warn=db.log.filter(e=>e.status==='warn').length,ok=total-expired-warn;
+  document.getElementById('stats-body').innerHTML=`
     <div class="stat-row">
       <div class="stat-card"><div class="stat-n a">${total}</div><div class="stat-lbl">Total Scans</div></div>
       <div class="stat-card"><div class="stat-n">${db.ingredients.length}</div><div class="stat-lbl">Library Size</div></div>
@@ -791,73 +638,39 @@ function renderStats() {
     </div>
     <div class="stat-row">
       <div class="stat-card"><div class="stat-n d">${expired}</div><div class="stat-lbl">Expired Items</div></div>
-      <div class="stat-card"><div class="stat-n">${db.log.filter(e=>e.status==='ok').length}</div><div class="stat-lbl">Cleared OK</div></div>
+      <div class="stat-card"><div class="stat-n">${db.ingredients.filter(i=>expStatus(i.exp)==='expired').length}</div><div class="stat-lbl">Expired in Lib</div></div>
     </div>
     ${total?`<div class="sec-head"><div class="sec-title">Last Scan</div></div>
     <div style="margin:0 16px;background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:14px 16px;">
-      <div style="font-size:22px;margin-bottom:4px;">${db.log[0].icon} <strong>${db.log[0].name}</strong></div>
+      <div style="font-size:18px;font-weight:800;margin-bottom:4px">${db.log[0].icon} ${db.log[0].name}</div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${fmtDt(db.log[0].ts)}</div>
     </div>`:''}
   `;
 }
 
-// ════════════════════════════════════════════════════════════
-//  UI HELPERS
-// ════════════════════════════════════════════════════════════
-function openModal(id) { document.getElementById(id).classList.add('on'); }
-function closeModal(id) { document.getElementById(id).classList.remove('on'); }
-document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', e => { if(e.target===o) closeModal(o.id); }));
-
-function switchView(name, btn) {
+// ── UI HELPERS ────────────────────────────────────────────────
+function openModal(id){document.getElementById(id).classList.add('on');}
+function closeModal(id){document.getElementById(id).classList.remove('on');}
+document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)closeModal(o.id);}));
+function switchView(name,btn){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('on'));
   document.getElementById('view-'+name).classList.add('on');
   btn.classList.add('on');
-  if (name==='library') renderLibrary();
-  if (name==='stats') renderStats();
+  if(name==='library')renderLibrary();
+  if(name==='stats')renderStats();
 }
-
 let toastTimer;
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('on');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(()=>t.classList.remove('on'), 2600);
-}
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('on'),2800);}
 
-// ════════════════════════════════════════════════════════════
-//  PWA INSTALL
-// ════════════════════════════════════════════════════════════
-window.addEventListener('beforeinstallprompt', e => {
-  e.preventDefault();
-  deferredInstall = e;
-  document.getElementById('install-banner').classList.remove('hide');
-});
-function installPWA() {
-  if (!deferredInstall) return;
-  deferredInstall.prompt();
-  deferredInstall.userChoice.then(r => {
-    if (r.outcome==='accepted') { document.getElementById('install-banner').classList.add('hide'); showToast('✓ MatScan installed!'); }
-  });
-  deferredInstall = null;
-}
-function dismissInstall() { document.getElementById('install-banner').classList.add('hide'); }
-window.addEventListener('appinstalled', () => { document.getElementById('install-banner').classList.add('hide'); });
+// ── PWA ───────────────────────────────────────────────────────
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;document.getElementById('install-banner').classList.remove('hide');});
+function installPWA(){if(!deferredInstall)return;deferredInstall.prompt();deferredInstall.userChoice.then(r=>{if(r.outcome==='accepted'){document.getElementById('install-banner').classList.add('hide');showToast('✓ MatScan installed!');}});deferredInstall=null;}
+window.addEventListener('appinstalled',()=>document.getElementById('install-banner').classList.add('hide'));
+if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
-// ════════════════════════════════════════════════════════════
-//  SERVICE WORKER
-// ════════════════════════════════════════════════════════════
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(()=>{});
-}
-
-// ════════════════════════════════════════════════════════════
-//  INIT
-// ════════════════════════════════════════════════════════════
-renderLog();
-renderLibrary();
-renderStats();
+// ── INIT ──────────────────────────────────────────────────────
+renderLog();renderLibrary();renderStats();
 </script>
 </body>
 </html>
