@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0c0f">
+<title>MatScan</title>
+<link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<!-- ZXing barcode library for camera scanning -->
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<style>
+:root {
+  --bg: #0a0c0f;
+  --s1: #111418;
+  --s2: #181c22;
+  --s3: #1e242c;
+  --border: #252b34;
+  --accent: #00e5a0;
+  --blue: #2979ff;
+  --warn: #ff9800;
+  --danger: #ff3d5a;
+  --text: #e8edf3;
+  --muted: #56637a;
+  --mono: 'Space Mono', monospace;
+  --sans: 'Syne', sans-serif;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bot: env(safe-area-inset-bottom, 0px);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--sans);}
+
+/* ── LAYOUT ────────────────────────────────────────────────── */
+#app{display:flex;flex-direction:column;height:100%;height:100dvh;}
+#top-bar{
+  flex-shrink:0;
+  padding:calc(var(--safe-top) + 12px) 18px 12px;
+  display:flex;align-items:center;justify-content:space-between;
+  background:rgba(10,12,15,0.95);
+  border-bottom:1px solid var(--border);
+  backdrop-filter:blur(12px);
+  z-index:20;
+}
+.logo{font-size:20px;font-weight:800;letter-spacing:-0.5px;}
+.logo em{color:var(--accent);font-style:normal;}
+
+#content{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;}
+#content::-webkit-scrollbar{display:none;}
+
+#nav{
+  flex-shrink:0;
+  padding:8px 12px calc(var(--safe-bot) + 8px);
+  display:flex;gap:6px;
+  background:rgba(14,17,21,0.97);
+  border-top:1px solid var(--border);
+  backdrop-filter:blur(16px);
+}
+.nav-btn{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:8px 4px;border:1px solid transparent;border-radius:12px;
+  background:none;color:var(--muted);cursor:pointer;
+  font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:0.5px;
+  transition:all 0.2s;
+}
+.nav-btn .ni{font-size:20px;line-height:1;}
+.nav-btn.on{color:var(--accent);background:rgba(0,229,160,0.07);border-color:rgba(0,229,160,0.18);}
+
+/* ── VIEWS ─────────────────────────────────────────────────── */
+.view{display:none;padding-bottom:12px;}
+.view.on{display:block;}
+
+/* ── SCAN VIEW ─────────────────────────────────────────────── */
+#cam-wrap{
+  position:relative;
+  background:#000;
+  overflow:hidden;
+  height:52vw;
+  max-height:260px;
+}
+#cam-video{width:100%;height:100%;object-fit:cover;display:block;}
+#cam-overlay{
+  position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,0.55);
+}
+#cam-frame{
+  width:70%;aspect-ratio:2/1;
+  border:2px solid var(--accent);
+  border-radius:10px;
+  position:relative;
+  box-shadow:0 0 0 9999px rgba(0,0,0,0.45);
+}
+#cam-frame::before,#cam-frame::after,
+.cf-bl::before,.cf-bl::after{
+  content:'';position:absolute;width:18px;height:18px;border-color:var(--accent);border-style:solid;
+}
+#cam-frame::before{top:-2px;left:-2px;border-width:3px 0 0 3px;border-radius:4px 0 0 0;}
+#cam-frame::after{top:-2px;right:-2px;border-width:3px 3px 0 0;border-radius:0 4px 0 0;}
+.cf-bl::before{bottom:-2px;left:-2px;border-width:0 0 3px 3px;border-radius:0 0 0 4px;}
+.cf-bl::after{bottom:-2px;right:-2px;border-width:0 3px 3px 0;border-radius:0 0 4px 0;}
+#scan-line{
+  position:absolute;left:6px;right:6px;height:2px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);
+  top:0;animation:sweep 2s linear infinite;
+}
+@keyframes sweep{0%{top:4px}100%{top:calc(100% - 4px)}}
+#cam-status{
+  position:absolute;bottom:10px;left:0;right:0;text-align:center;
+  font-family:var(--mono);font-size:10px;color:rgba(255,255,255,0.6);
+  text-transform:uppercase;letter-spacing:1px;
+}
+
+#cam-controls{
+  display:flex;gap:8px;padding:10px 16px;
+}
+.cam-btn{
+  flex:1;padding:12px 6px;border-radius:10px;border:1px solid var(--border);
+  background:var(--s1);color:var(--text);font-family:var(--sans);font-size:13px;
+  font-weight:600;cursor:pointer;transition:all 0.18s;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+.cam-btn.primary{background:var(--accent);color:#000;border-color:transparent;}
+.cam-btn.primary:active{background:#00c88a;}
+.cam-btn:active{opacity:0.7;}
+.cam-btn.on{background:rgba(255,61,90,0.15);border-color:rgba(255,61,90,0.4);color:var(--danger);}
+
+/* manual input */
+#manual-row{
+  display:flex;gap:8px;padding:0 16px 12px;
+}
+#manual-input{
+  flex:1;background:var(--s1);border:1px solid var(--border);
+  color:var(--text);font-family:var(--mono);font-size:13px;
+  padding:10px 12px;border-radius:10px;outline:none;
+}
+#manual-input:focus{border-color:var(--blue);}
+#manual-go{
+  padding:10px 16px;background:var(--blue);color:#fff;
+  border:none;border-radius:10px;font-family:var(--sans);
+  font-weight:700;font-size:13px;cursor:pointer;
+}
+
+/* log */
+.sec-head{padding:14px 16px 8px;display:flex;align-items:center;justify-content:space-between;}
+.sec-title{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);}
+.chip{
+  background:var(--s2);border:1px solid var(--border);
+  font-family:var(--mono);font-size:9px;padding:3px 9px;border-radius:8px;color:var(--muted);
+}
+.chip.danger{background:rgba(255,61,90,0.1);border-color:rgba(255,61,90,0.3);color:var(--danger);}
+.chip.warn{background:rgba(255,152,0,0.1);border-color:rgba(255,152,0,0.3);color:var(--warn);}
+
+#log-list{padding:0 16px;display:flex;flex-direction:column;gap:9px;}
+.log-card{
+  background:var(--s1);border:1px solid var(--border);border-radius:14px;
+  padding:13px 14px;display:flex;align-items:center;gap:12px;
+  position:relative;overflow:hidden;
+  animation:popIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes popIn{from{opacity:0;transform:scale(0.94) translateY(-8px)}to{opacity:1;transform:none}}
+.log-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:14px 0 0 14px;}
+.log-card.ok::before{background:var(--accent);}
+.log-card.warn::before{background:var(--warn);}
+.log-card.expired::before{background:var(--danger);}
+.log-card.ok{border-color:rgba(0,229,160,0.15);}
+.log-card.warn{border-color:rgba(255,152,0,0.2);background:rgba(255,152,0,0.03);}
+.log-card.expired{border-color:rgba(255,61,90,0.25);background:rgba(255,61,90,0.04);}
+.log-ico{width:42px;height:42px;background:var(--s2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
+.log-body{flex:1;min-width:0;}
+.log-name{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.log-meta{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px;}
+.log-exp{font-family:var(--mono);font-size:10px;margin-top:3px;}
+.log-exp.ok{color:var(--accent);}
+.log-exp.warn{color:var(--warn);}
+.log-exp.expired{color:var(--danger);}
+.log-badge{font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:6px;text-transform:uppercase;letter-spacing:0.5px;flex-shrink:0;}
+.log-badge.ok{background:rgba(0,229,160,0.1);color:var(--accent);}
+.log-badge.warn{background:rgba(255,152,0,0.12);color:var(--warn);}
+.log-badge.expired{background:rgba(255,61,90,0.15);color:var(--danger);}
+
+.empty{text-align:center;padding:40px 20px;color:var(--muted);font-family:var(--mono);font-size:11px;}
+.empty .ei{font-size:40px;display:block;margin-bottom:10px;opacity:0.35;}
+
+/* ── LIBRARY VIEW ──────────────────────────────────────────── */
+#lib-list{padding:0 16px;display:flex;flex-direction:column;gap:9px;}
+.lib-card{
+  background:var(--s1);border:1px solid var(--border);border-radius:14px;
+  padding:13px 14px;display:flex;align-items:center;gap:12px;
+}
+.lib-ico{width:42px;height:42px;background:var(--s2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
+.lib-body{flex:1;min-width:0;}
+.lib-name{font-weight:700;font-size:15px;}
+.lib-sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px;}
+.lib-exp{font-family:var(--mono);font-size:10px;margin-top:2px;}
+.lib-exp.ok{color:var(--accent);}
+.lib-exp.warn{color:var(--warn);}
+.lib-exp.expired{color:var(--danger);}
+.lib-del{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:6px;transition:color 0.2s;}
+.lib-del:active{color:var(--danger);}
+
+/* ── STATS VIEW ────────────────────────────────────────────── */
+#stats-body{padding:0 16px;display:flex;flex-direction:column;gap:10px;}
+.stat-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.stat-card{background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:16px;}
+.stat-n{font-size:34px;font-weight:800;line-height:1;}
+.stat-n.a{color:var(--accent);}
+.stat-n.d{color:var(--danger);}
+.stat-n.w{color:var(--warn);}
+.stat-lbl{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-top:4px;}
+
+/* ── MODALS ────────────────────────────────────────────────── */
+.overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);
+  z-index:90;display:flex;align-items:flex-end;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity 0.22s;
+}
+.overlay.on{opacity:1;pointer-events:all;}
+.sheet{
+  background:var(--s1);border:1px solid var(--border);
+  border-radius:22px 22px 0 0;
+  padding:0 20px calc(var(--safe-bot) + 24px);
+  width:100%;max-width:520px;
+  transform:translateY(40px);
+  transition:transform 0.28s cubic-bezier(0.34,1.4,0.64,1);
+  max-height:90dvh;overflow-y:auto;
+}
+.overlay.on .sheet{transform:translateY(0);}
+.sheet-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:14px auto 22px;}
+.sheet-title{font-size:20px;font-weight:800;margin-bottom:4px;}
+.sheet-sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:20px;}
+
+.fg{margin-bottom:16px;}
+.fl{display:block;font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:7px;}
+.fi,.fs{
+  width:100%;background:var(--s2);border:1px solid var(--border);
+  color:var(--text);font-family:var(--sans);font-size:15px;
+  padding:11px 13px;border-radius:10px;outline:none;transition:border-color 0.18s;
+  -webkit-appearance:none;
+}
+.fi:focus,.fs:focus{border-color:var(--blue);}
+.fs option{background:var(--s2);}
+
+.emoji-row{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;}
+.ep{
+  width:40px;height:40px;display:flex;align-items:center;justify-content:center;
+  font-size:20px;background:var(--s2);border:1.5px solid var(--border);
+  border-radius:9px;cursor:pointer;transition:all 0.15s;
+}
+.ep:active,.ep.sel{border-color:var(--accent);background:rgba(0,229,160,0.1);}
+
+.btn-row{display:flex;gap:10px;margin-top:20px;}
+.btn{
+  flex:1;padding:14px;border-radius:12px;font-family:var(--sans);
+  font-weight:700;font-size:15px;cursor:pointer;border:none;transition:all 0.18s;
+}
+.btn-p{background:var(--accent);color:#000;}
+.btn-p:active{background:#00c48a;}
+.btn-s{background:var(--s2);color:var(--text);border:1px solid var(--border);}
+.btn-s:active{opacity:0.7;}
+
+/* expiry alert */
+.exp-sheet{text-align:center;}
+.exp-big{font-size:64px;display:block;margin-bottom:8px;}
+.exp-name{font-size:22px;font-weight:800;}
+.exp-msg{font-family:var(--mono);font-size:11px;color:var(--muted);margin:8px 0 0;}
+.exp-days{display:inline-block;margin:14px 0;padding:9px 20px;border-radius:10px;font-family:var(--mono);font-weight:700;font-size:13px;}
+.exp-days.expired{background:rgba(255,61,90,0.14);color:var(--danger);border:1px solid rgba(255,61,90,0.3);}
+.exp-days.warn{background:rgba(255,152,0,0.12);color:var(--warn);border:1px solid rgba(255,152,0,0.3);}
+
+/* toast */
+#toast{
+  position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(16px);
+  background:var(--s1);border:1px solid var(--border);
+  color:var(--text);font-family:var(--mono);font-size:11px;
+  padding:9px 18px;border-radius:20px;
+  opacity:0;transition:all 0.25s;white-space:nowrap;z-index:200;
+  pointer-events:none;
+}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* scan pulse ring when active */
+#pulse{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:80px;height:80px;border-radius:50%;
+  background:rgba(0,229,160,0.15);
+  display:none;
+  animation:ringPulse 0.6s ease-out;
+}
+@keyframes ringPulse{0%{transform:translate(-50%,-50%) scale(0.3);opacity:1}100%{transform:translate(-50%,-50%) scale(2.5);opacity:0}}
+
+/* install banner */
+#install-banner{
+  margin:10px 16px 0;
+  background:linear-gradient(135deg,rgba(41,121,255,0.15),rgba(0,229,160,0.1));
+  border:1px solid rgba(41,121,255,0.3);border-radius:12px;
+  padding:12px 14px;display:flex;align-items:center;gap:12px;
+}
+#install-banner.hide{display:none;}
+.ib-text{flex:1;font-size:12px;font-weight:600;}
+.ib-sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px;}
+.ib-btn{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-family:var(--sans);font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;}
+.ib-x{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:2px 6px;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- TOP BAR -->
+  <div id="top-bar">
+    <div class="logo">Mat<em>Scan</em></div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div id="scan-indicator" style="font-family:var(--mono);font-size:10px;color:var(--muted);display:flex;align-items:center;gap:5px;">
+        <div id="si-dot" style="width:6px;height:6px;border-radius:50%;background:var(--muted);"></div>
+        <span id="si-text">Camera off</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div id="content">
+
+    <!-- ══ SCAN VIEW ══ -->
+    <div class="view on" id="view-scan">
+
+      <!-- Install banner -->
+      <div id="install-banner" class="hide">
+        <div>
+          <div class="ib-text">📲 Install MatScan</div>
+          <div class="ib-sub">Add to home screen for app experience</div>
+        </div>
+        <button class="ib-btn" onclick="installPWA()">Install</button>
+        <button class="ib-x" onclick="dismissInstall()">✕</button>
+      </div>
+
+      <!-- Camera viewfinder -->
+      <div id="cam-wrap">
+        <video id="cam-video" playsinline muted></video>
+        <div id="cam-overlay">
+          <div id="pulse"></div>
+          <div id="cam-frame">
+            <div class="cf-bl"></div>
+            <div id="scan-line"></div>
+          </div>
+        </div>
+        <div id="cam-status">Tap Start Camera to scan</div>
+      </div>
+
+      <!-- Controls -->
+      <div id="cam-controls">
+        <button class="cam-btn primary" id="start-btn" onclick="startCamera()">
+          <span>📷</span> Start Camera
+        </button>
+        <button class="cam-btn" id="torch-btn" onclick="toggleTorch()" style="flex:0;padding:12px 14px;">🔦</button>
+        <button class="cam-btn" id="flip-btn" onclick="flipCamera()" style="flex:0;padding:12px 14px;">🔄</button>
+      </div>
+
+      <!-- Manual barcode entry -->
+      <div id="manual-row">
+        <input class="form-input" id="manual-input" placeholder="Or type barcode / ID manually…" type="text" inputmode="text" />
+        <button id="manual-go" onclick="manualLookup()">Go</button>
+      </div>
+
+      <!-- Log -->
+      <div class="sec-head">
+        <div class="sec-title">Scan Log</div>
+        <div class="chip" id="log-chip">0 entries</div>
+      </div>
+      <div id="log-list">
+        <div class="empty"><span class="ei">📋</span>No scans yet.<br>Start camera to begin.</div>
+      </div>
+    </div>
+
+    <!-- ══ LIBRARY VIEW ══ -->
+    <div class="view" id="view-library">
+      <div class="sec-head">
+        <div class="sec-title">Ingredient Library</div>
+        <button style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:6px 14px;font-family:var(--sans);font-weight:700;font-size:12px;cursor:pointer;" onclick="openAdd(null,true)">+ Add</button>
+      </div>
+      <div id="lib-list"></div>
+    </div>
+
+    <!-- ══ STATS VIEW ══ -->
+    <div class="view" id="view-stats">
+      <div class="sec-head"><div class="sec-title">Overview</div></div>
+      <div id="stats-body"></div>
+    </div>
+
+  </div><!-- /content -->
+
+  <!-- BOTTOM NAV -->
+  <nav id="nav">
+    <button class="nav-btn on" onclick="switchView('scan',this)"><span class="ni">📡</span>Scan</button>
+    <button class="nav-btn" onclick="switchView('library',this)"><span class="ni">📦</span>Library</button>
+    <button class="nav-btn" onclick="switchView('stats',this)"><span class="ni">📊</span>Stats</button>
+  </nav>
+
+</div><!-- /app -->
+
+<!-- ══ ADD INGREDIENT MODAL ══ -->
+<div class="overlay" id="m-add">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Add Ingredient</div>
+    <div class="sheet-sub" id="add-sub">Register this material in your library</div>
+    <div class="fg"><label class="fl">Name</label><input class="fi" id="f-name" placeholder="e.g. Isopropyl Alcohol" /></div>
+    <div class="fg"><label class="fl">Barcode / ID (optional)</label><input class="fi" id="f-barcode" placeholder="e.g. 012345678901" /></div>
+    <div class="fg">
+      <label class="fl">Category</label>
+      <select class="fs" id="f-cat">
+        <option>Chemical</option><option>Food</option><option>Pharmaceutical</option>
+        <option>Raw Material</option><option>Reagent</option><option>Solvent</option><option>Other</option>
+      </select>
+    </div>
+    <div class="fg"><label class="fl">Expiry Date</label><input class="fi" id="f-exp" type="date" /></div>
+    <div class="fg">
+      <label class="fl">Icon</label>
+      <div class="emoji-row" id="emoji-grid"></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-s" onclick="closeModal('m-add')">Cancel</button>
+      <button class="btn btn-p" onclick="saveIngredient()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ EXPIRY ALERT MODAL ══ -->
+<div class="overlay" id="m-expiry">
+  <div class="sheet exp-sheet">
+    <div class="sheet-handle"></div>
+    <div id="exp-content"></div>
+    <div class="btn-row">
+      <button class="btn btn-s" onclick="closeModal('m-expiry')">Dismiss</button>
+      <button class="btn btn-p" onclick="logAnyway()">Log Anyway</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+//  DATA
+// ════════════════════════════════════════════════════════════
+const EMOJIS = ['🧪','⚗️','🧬','🔬','💊','🧴','🧂','🌡️','🍬','🛢️','⚙️','🔩','🧲','💡','🌿','🍋','💧','🔋','📦','🧫'];
+
+let db = {
+  ingredients: JSON.parse(localStorage.getItem('ms_ingr') || 'null') || defaultIngr(),
+  log: JSON.parse(localStorage.getItem('ms_log') || '[]')
+};
+let camStream = null, codeReader = null, torchOn = false, facingMode = 'environment';
+let selectedEmoji = EMOJIS[0], addFromLib = false, pendingBarcode = null, pendingIngr = null;
+let deferredInstall = null;
+
+function save() {
+  localStorage.setItem('ms_ingr', JSON.stringify(db.ingredients));
+  localStorage.setItem('ms_log', JSON.stringify(db.log));
+}
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function futureDate(d) { const x=new Date(); x.setDate(x.getDate()+d); return x.toISOString().split('T')[0]; }
+
+function defaultIngr() {
+  return [
+    {id:uid(),name:'Sodium Chloride',barcode:'4001686107003',cat:'Chemical',icon:'🧂',exp:futureDate(365)},
+    {id:uid(),name:'Ethanol 96%',barcode:'4056489014218',cat:'Solvent',icon:'🧪',exp:futureDate(-10)},
+    {id:uid(),name:'Acetone',barcode:'8714573007953',cat:'Solvent',icon:'⚗️',exp:futureDate(18)},
+    {id:uid(),name:'Glucose',barcode:'5000167001201',cat:'Food',icon:'🍬',exp:futureDate(180)},
+    {id:uid(),name:'Amoxicillin 500mg',barcode:'5012456789012',cat:'Pharmaceutical',icon:'💊',exp:futureDate(90)},
+  ];
+}
+
+function daysLeft(d) {
+  if(!d) return null;
+  const now=new Date(); now.setHours(0,0,0,0);
+  return Math.ceil((new Date(d)-now)/86400000);
+}
+function expStatus(d) {
+  const x=daysLeft(d);
+  if(x===null) return 'ok';
+  if(x<0) return 'expired';
+  if(x<=30) return 'warn';
+  return 'ok';
+}
+function fmtDt(iso) {
+  const d=new Date(iso);
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    +' '+d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+}
+function findByBarcode(bc) {
+  return db.ingredients.find(i => i.barcode && i.barcode === bc);
+}
+
+// ════════════════════════════════════════════════════════════
+//  CAMERA / SCANNING
+// ════════════════════════════════════════════════════════════
+async function startCamera() {
+  const btn = document.getElementById('start-btn');
+  if (camStream) { stopCamera(); return; }
+
+  setScanStatus('Starting…', '#ff9800');
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width:{ideal:1280}, height:{ideal:720} },
+      audio: false
+    });
+    const vid = document.getElementById('cam-video');
+    vid.srcObject = camStream;
+    await vid.play();
+
+    btn.innerHTML = '<span>⏹</span> Stop Camera';
+    btn.classList.add('on');
+    setScanStatus('Scanning for barcode…', '#00e5a0');
+    startDecoding();
+  } catch(e) {
+    setScanStatus('Camera error: '+e.message, '#ff3d5a');
+    showToast('❌ Camera: '+e.message);
+    camStream = null;
+  }
+}
+
+function stopCamera() {
+  if (camStream) { camStream.getTracks().forEach(t=>t.stop()); camStream=null; }
+  if (codeReader) { try{codeReader.reset();}catch(e){} codeReader=null; }
+  const vid = document.getElementById('cam-video');
+  vid.srcObject = null;
+  const btn = document.getElementById('start-btn');
+  btn.innerHTML = '<span>📷</span> Start Camera';
+  btn.classList.remove('on');
+  setScanStatus('Camera off', 'var(--muted)');
+}
+
+function startDecoding() {
+  if (typeof ZXing === 'undefined') { showToast('Barcode library loading…'); return; }
+  const hints = new Map();
+  const formats = [
+    ZXing.BarcodeFormat.QR_CODE,
+    ZXing.BarcodeFormat.CODE_128,
+    ZXing.BarcodeFormat.EAN_13,
+    ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.UPC_A,
+    ZXing.BarcodeFormat.UPC_E,
+    ZXing.BarcodeFormat.CODE_39,
+    ZXing.BarcodeFormat.DATA_MATRIX
+  ];
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+  codeReader = new ZXing.BrowserMultiFormatReader(hints);
+  const vid = document.getElementById('cam-video');
+  codeReader.decodeFromVideoElement(vid, (result, err) => {
+    if (result) {
+      const code = result.getText();
+      onBarcodeDetected(code);
+    }
+  });
+}
+
+let lastScan = '', lastScanTime = 0;
+function onBarcodeDetected(code) {
+  const now = Date.now();
+  if (code === lastScan && now - lastScanTime < 3000) return; // debounce
+  lastScan = code; lastScanTime = now;
+
+  // pulse animation
+  const p = document.getElementById('pulse');
+  p.style.display = 'block';
+  setTimeout(()=>{p.style.display='none';}, 700);
+
+  // haptic feedback
+  if (navigator.vibrate) navigator.vibrate([60,40,60]);
+
+  setScanStatus('✓ Scanned: '+code, '#00e5a0');
+  processBarcode(code);
+}
+
+function processBarcode(code) {
+  const ingr = findByBarcode(code);
+  if (!ingr) {
+    pendingBarcode = code;
+    openAdd(code, false);
+    return;
+  }
+  const st = expStatus(ingr.exp);
+  if (st !== 'ok') {
+    pendingIngr = ingr;
+    showExpiryAlert(ingr, st);
+  } else {
+    addLog(ingr);
+  }
+}
+
+function manualLookup() {
+  const v = document.getElementById('manual-input').value.trim();
+  if (!v) return;
+  document.getElementById('manual-input').value = '';
+  processBarcode(v);
+}
+
+async function toggleTorch() {
+  if (!camStream) { showToast('Start camera first'); return; }
+  const track = camStream.getVideoTracks()[0];
+  if (!track.getCapabilities) { showToast('Torch not supported'); return; }
+  const caps = track.getCapabilities();
+  if (!caps.torch) { showToast('Torch not available'); return; }
+  torchOn = !torchOn;
+  await track.applyConstraints({ advanced:[{torch:torchOn}] });
+  const btn = document.getElementById('torch-btn');
+  btn.style.color = torchOn ? '#ffd700' : '';
+  showToast(torchOn ? '🔦 Torch on' : 'Torch off');
+}
+
+function flipCamera() {
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  if (camStream) { stopCamera(); setTimeout(startCamera, 300); }
+  showToast(facingMode==='user'?'Front camera':'Rear camera');
+}
+
+function setScanStatus(msg, color) {
+  const dot = document.getElementById('si-dot');
+  const txt = document.getElementById('si-text');
+  const camTxt = document.getElementById('cam-status');
+  dot.style.background = color;
+  txt.textContent = msg.length > 18 ? msg.slice(0,18)+'…' : msg;
+  if(camTxt) camTxt.textContent = msg;
+}
+
+// ════════════════════════════════════════════════════════════
+//  LOG
+// ════════════════════════════════════════════════════════════
+function addLog(ingr) {
+  const st = expStatus(ingr.exp);
+  db.log.unshift({ id:uid(), ts:new Date().toISOString(), name:ingr.name, cat:ingr.cat, icon:ingr.icon, exp:ingr.exp, barcode:ingr.barcode||'', status:st });
+  save();
+  renderLog();
+  renderStats();
+  showToast('✓ Logged: '+ingr.name);
+}
+
+function renderLog() {
+  const el = document.getElementById('log-list');
+  const chip = document.getElementById('log-chip');
+  chip.textContent = db.log.length + (db.log.length===1?' entry':' entries');
+
+  const expired = db.log.filter(e=>e.status==='expired').length;
+  const warn = db.log.filter(e=>e.status==='warn').length;
+  if (expired) { chip.className='chip danger'; chip.textContent = expired+' expired'; }
+  else if (warn) { chip.className='chip warn'; chip.textContent = warn+' expiring'; }
+  else chip.className='chip';
+
+  if (!db.log.length) { el.innerHTML='<div class="empty"><span class="ei">📋</span>No scans yet.<br>Start camera to begin.</div>'; return; }
+
+  el.innerHTML = db.log.slice(0,60).map(e => {
+    const days = daysLeft(e.exp);
+    const expLine = e.exp ? `<div class="log-exp ${e.status}">${
+      e.status==='expired' ? `⚠ Expired ${Math.abs(days)}d ago` :
+      e.status==='warn' ? `⚠ Expires in ${days}d` :
+      `✓ Exp: ${e.exp}`
+    }</div>` : '';
+    return `<div class="log-card ${e.status}">
+      <div class="log-ico">${e.icon||'📦'}</div>
+      <div class="log-body">
+        <div class="log-name">${e.name}</div>
+        <div class="log-meta">${e.cat} · ${fmtDt(e.ts)}</div>
+        ${expLine}
+      </div>
+      <div class="log-badge ${e.status}">${e.status==='ok'?'OK':e.status==='expired'?'EXP':'WARN'}</div>
+    </div>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════════════════════════
+//  EXPIRY ALERT
+// ════════════════════════════════════════════════════════════
+function showExpiryAlert(ingr, st) {
+  const days = daysLeft(ingr.exp);
+  const dayTxt = days<0 ? `Expired ${Math.abs(days)} day${Math.abs(days)!==1?'s':''} ago`
+                        : `Expires in ${days} day${days!==1?'s':''}`;
+  document.getElementById('exp-content').innerHTML = `
+    <span class="exp-big">${st==='expired'?'🚨':'⚠️'}</span>
+    <div class="exp-name">${ingr.name}</div>
+    <div class="exp-msg">${st==='expired'?'This material is expired.':'This material is expiring soon.'}</div>
+    <div class="exp-days ${st}">${dayTxt}</div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:4px;">Expiry: ${ingr.exp}</div>
+  `;
+  openModal('m-expiry');
+  if (navigator.vibrate) navigator.vibrate([100,50,100,50,200]);
+}
+
+function logAnyway() {
+  closeModal('m-expiry');
+  if (pendingIngr) { addLog(pendingIngr); pendingIngr=null; }
+}
+
+// ════════════════════════════════════════════════════════════
+//  ADD INGREDIENT
+// ════════════════════════════════════════════════════════════
+function openAdd(barcode, fromLib) {
+  addFromLib = fromLib;
+  pendingBarcode = barcode;
+  document.getElementById('f-name').value = '';
+  document.getElementById('f-barcode').value = barcode||'';
+  document.getElementById('f-exp').value = '';
+  document.getElementById('add-sub').textContent = fromLib
+    ? 'Add a new ingredient to your library'
+    : barcode ? `Unknown barcode: ${barcode} — register it` : 'Add ingredient manually';
+  selectedEmoji = EMOJIS[0];
+  renderEmojiGrid();
+  openModal('m-add');
+}
+
+function renderEmojiGrid() {
+  document.getElementById('emoji-grid').innerHTML = EMOJIS.map(e =>
+    `<div class="ep${e===selectedEmoji?' sel':''}" onclick="pickEmoji('${e}')">${e}</div>`
+  ).join('');
+}
+function pickEmoji(e) { selectedEmoji=e; renderEmojiGrid(); }
+
+function saveIngredient() {
+  const name = document.getElementById('f-name').value.trim();
+  if (!name) { document.getElementById('f-name').focus(); showToast('Enter a name'); return; }
+  const ingr = {
+    id: uid(),
+    name,
+    barcode: document.getElementById('f-barcode').value.trim(),
+    cat: document.getElementById('f-cat').value,
+    icon: selectedEmoji,
+    exp: document.getElementById('f-exp').value || null
+  };
+  db.ingredients.push(ingr);
+  save();
+  closeModal('m-add');
+  renderLibrary();
+  showToast('✓ '+name+' added');
+  if (!addFromLib) {
+    pendingIngr = ingr;
+    const st = expStatus(ingr.exp);
+    if (st !== 'ok') showExpiryAlert(ingr, st);
+    else addLog(ingr);
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  LIBRARY
+// ════════════════════════════════════════════════════════════
+function renderLibrary() {
+  const el = document.getElementById('lib-list');
+  if (!db.ingredients.length) { el.innerHTML='<div class="empty"><span class="ei">📦</span>Library empty.</div>'; return; }
+  el.innerHTML = db.ingredients.map(i => {
+    const st = expStatus(i.exp);
+    const expLine = i.exp ? `<div class="lib-exp ${st}">${
+      st==='expired'?`⚠ Expired ${Math.abs(daysLeft(i.exp))}d ago`:
+      st==='warn'?`⚠ Exp in ${daysLeft(i.exp)}d`:`Exp: ${i.exp}`
+    }</div>` : '';
+    return `<div class="lib-card">
+      <div class="lib-ico">${i.icon}</div>
+      <div class="lib-body">
+        <div class="lib-name">${i.name}</div>
+        <div class="lib-sub">${i.cat}${i.barcode?' · '+i.barcode:''}</div>
+        ${expLine}
+      </div>
+      <button class="lib-del" onclick="delIngr('${i.id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function delIngr(id) {
+  if (!confirm('Remove this ingredient?')) return;
+  db.ingredients = db.ingredients.filter(i=>i.id!==id);
+  save(); renderLibrary(); showToast('Removed');
+}
+
+// ════════════════════════════════════════════════════════════
+//  STATS
+// ════════════════════════════════════════════════════════════
+function renderStats() {
+  const total = db.log.length;
+  const expired = db.log.filter(e=>e.status==='expired').length;
+  const warn = db.log.filter(e=>e.status==='warn').length;
+  const ok = total-expired-warn;
+  const el = document.getElementById('stats-body');
+  el.innerHTML = `
+    <div class="stat-row">
+      <div class="stat-card"><div class="stat-n a">${total}</div><div class="stat-lbl">Total Scans</div></div>
+      <div class="stat-card"><div class="stat-n">${db.ingredients.length}</div><div class="stat-lbl">Library Size</div></div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-card"><div class="stat-n">${ok}</div><div class="stat-lbl">OK Scans</div></div>
+      <div class="stat-card"><div class="stat-n w">${warn}</div><div class="stat-lbl">Expiring Soon</div></div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-card"><div class="stat-n d">${expired}</div><div class="stat-lbl">Expired Items</div></div>
+      <div class="stat-card"><div class="stat-n">${db.log.filter(e=>e.status==='ok').length}</div><div class="stat-lbl">Cleared OK</div></div>
+    </div>
+    ${total?`<div class="sec-head"><div class="sec-title">Last Scan</div></div>
+    <div style="margin:0 16px;background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:14px 16px;">
+      <div style="font-size:22px;margin-bottom:4px;">${db.log[0].icon} <strong>${db.log[0].name}</strong></div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${fmtDt(db.log[0].ts)}</div>
+    </div>`:''}
+  `;
+}
+
+// ════════════════════════════════════════════════════════════
+//  UI HELPERS
+// ════════════════════════════════════════════════════════════
+function openModal(id) { document.getElementById(id).classList.add('on'); }
+function closeModal(id) { document.getElementById(id).classList.remove('on'); }
+document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', e => { if(e.target===o) closeModal(o.id); }));
+
+function switchView(name, btn) {
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('on'));
+  document.getElementById('view-'+name).classList.add('on');
+  btn.classList.add('on');
+  if (name==='library') renderLibrary();
+  if (name==='stats') renderStats();
+}
+
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('on'), 2600);
+}
+
+// ════════════════════════════════════════════════════════════
+//  PWA INSTALL
+// ════════════════════════════════════════════════════════════
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstall = e;
+  document.getElementById('install-banner').classList.remove('hide');
+});
+function installPWA() {
+  if (!deferredInstall) return;
+  deferredInstall.prompt();
+  deferredInstall.userChoice.then(r => {
+    if (r.outcome==='accepted') { document.getElementById('install-banner').classList.add('hide'); showToast('✓ MatScan installed!'); }
+  });
+  deferredInstall = null;
+}
+function dismissInstall() { document.getElementById('install-banner').classList.add('hide'); }
+window.addEventListener('appinstalled', () => { document.getElementById('install-banner').classList.add('hide'); });
+
+// ════════════════════════════════════════════════════════════
+//  SERVICE WORKER
+// ════════════════════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(()=>{});
+}
+
+// ════════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════════
+renderLog();
+renderLibrary();
+renderStats();
+</script>
+</body>
+</html>
